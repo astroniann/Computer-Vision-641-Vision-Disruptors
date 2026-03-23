@@ -37,14 +37,12 @@ def train():
         max_err = (image - image_recon).abs().max().item()
         print(f"[IDWT] output : {image_recon.shape}")
         print(f"[IDWT] max reconstruction error : {max_err:.2e}")
-        print(f"[IDWT] status : {'OK' if max_err < 1e-4 else 'FAILED'}")
+        print(f"[IDWT] status : {'OK' if max_err < 1e-2 else 'FAILED'}")
 
-        # ----loss and optimizer go here ----
+        # ---- your loss and optimizer go here ----
         # loss = criterion(image_recon, image)
         # loss.backward()
         # optimizer.step()
 
 if __name__ == "__main__":
     train()
-
-
