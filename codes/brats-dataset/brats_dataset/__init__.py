@@ -1,3 +1,3 @@
 from .dataset    import BraTS20Dataset
 from .dataloader import get_dataloader
-from DWT_IDWT    import DWT_3D, IDWT_3D
+from .patient    import load_patient, clip_and_normalize, MODALITIES, NUM_MODALITIES

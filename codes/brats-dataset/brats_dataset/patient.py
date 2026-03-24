@@ -1,5 +1,6 @@
-
-# Loads all modalities (+ optional segmentation) for a single BraTS20 patient.
+# Loads all modalities (+ optional segmentation) for a single BraTS patient.
+# Normalisation: clip to [0.1th, 99.9th] percentile then scale to [0, 1],
+# matching cwdm's clip_and_normalize() in guided_diffusion/bratsloader.py.
 
 import glob
 from pathlib import Path
@@ -11,26 +12,25 @@ from .io     import load_volume
 from .labels import remap_labels
 
 MODALITIES     = ["t2f", "t1n", "t1c", "t2w"]   # BraTS 2024: flair, t1, t1ce, t2
-NUM_MODALITIES = len(MODALITIES)   # 4 input channels
+NUM_MODALITIES = len(MODALITIES)                  # 4 input channels
 
 
-def normalize_volume(image: np.ndarray) -> np.ndarray:
-    """ 
-    Z-score normalize only the non-zero (brain) regions per modality. 
-    Leaves the background (0) as 0. 
+def clip_and_normalize(img: np.ndarray) -> np.ndarray:
     """
-    out = np.zeros_like(image, dtype=np.float32)
-    for c in range(image.shape[0]):
-        channel = image[c]
-        mask = channel > 0
-        if mask.any():
-            mean = channel[mask].mean()
-            std  = channel[mask].std()
-            if std > 1e-8:
-                out[c][mask] = (channel[mask] - mean) / std
-            else:
-                out[c][mask] = channel[mask] - mean
-    return out
+    Clip to [0.1th, 99.9th] percentile then min-max scale to [0, 1].
+    Matches cwdm guided_diffusion/bratsloader.py clip_and_normalize() exactly.
+    """
+    img_clipped = np.clip(
+        img,
+        np.quantile(img, 0.001),
+        np.quantile(img, 0.999),
+    )
+    img_min = np.min(img_clipped)
+    img_max = np.max(img_clipped)
+    if img_max - img_min < 1e-8:
+        return np.zeros_like(img_clipped, dtype=np.float32)
+    return ((img_clipped - img_min) / (img_max - img_min)).astype(np.float32)
+
 
 def load_patient(
     patient_dir: str,
@@ -47,23 +47,22 @@ def load_patient(
 
     Returns
     -------
-    image : np.ndarray  shape (4, H, W, D)  float32 (normalized)
-    seg   : np.ndarray  shape (H, W, D)     uint8, or None
+    image : dict with keys 't2f', 't1n', 't1c', 't2w'
+            each value is np.ndarray of shape (1, H, W, D), float32, range [0, 1]
+    seg   : np.ndarray shape (H, W, D) uint8, or None
     """
     patient_dir = Path(patient_dir)
     patient_id  = patient_dir.name
 
-    modality_vols = []
+    modality_vols = {}
     for mod in MODALITIES:
         files = glob.glob(str(patient_dir / f"{patient_id}-{mod}.nii*"))
         if not files:
             raise FileNotFoundError(
                 f"Missing modality '{mod}' for {patient_id}"
             )
-        modality_vols.append(load_volume(files[0]))
-
-    image = np.stack(modality_vols, axis=0).astype(np.float32)   # (4, H, W, D)
-    image = normalize_volume(image)
+        vol = load_volume(files[0]).astype(np.float32)
+        modality_vols[mod] = clip_and_normalize(vol)[np.newaxis]  # (1, H, W, D)
 
     seg = None
     if load_seg:
@@ -75,4 +74,4 @@ def load_patient(
         seg = load_volume(files[0]).astype(np.uint8)
         seg = remap_labels(seg)
 
-    return image, seg
+    return modality_vols, seg

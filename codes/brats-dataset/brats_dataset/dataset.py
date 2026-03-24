@@ -1,4 +1,12 @@
-# PyTorch Dataset for BraTS20 brain tumour segmentation with DWT support.
+# PyTorch Dataset for BraTS brain tumour data, aligned with cwdm's BRATSVolumes.
+#
+# Key design decisions matching cwdm (guided_diffusion/bratsloader.py):
+#   - __getitem__ returns {'t1n', 't1c', 't2w', 't2f'} as separate (1, H, W, D) tensors
+#   - Normalisation is clip-and-normalize to [0, 1] (not Z-score)
+#   - No DWT is done here — cwdm does DWT inside gaussian_diffusion.training_losses()
+#   - No target/condition split here — cwdm does that inside training_losses() via `contr` arg
+#   - Volumes are zero-padded to (1, 240, 240, 160) then centre-cropped to (1, 224, 224, 160)
+#     matching cwdm's exact spatial handling
 
 from pathlib import Path
 from typing import Optional
@@ -9,59 +17,60 @@ import torch
 from torch.utils.data import Dataset
 
 from .patient import load_patient
-from DWT_IDWT.DWT_IDWT_layer import DWT_3D, IDWT_3D
+
+
+# Canonical BraTS depth: 155 slices padded to 160, then no depth crop
+PAD_H, PAD_W, PAD_D = 240, 240, 160
+CROP_H_START, CROP_H_END = 8, -8   # 240 -> 224
+CROP_W_START, CROP_W_END = 8, -8   # 240 -> 224
+# depth stays at 160 (cwdm does NOT crop depth)
+OUT_H, OUT_W, OUT_D = 224, 224, 160
 
 
 class BraTS20Dataset(Dataset):
     """
     Parameters
     ----------
-    data_root   : root folder containing train/ validation/ additional/
-    csv_path    : path to brats20_data.csv (or None to load all patients found)
+    data_root   : root folder; patient subfolders sit directly inside
+                  (e.g. data_root/BraTS-GLI-00000-000/)
+    csv_path    : optional path to an Excel/CSV file with a 'BraTS Subject ID'
+                  column; if given, only listed patients are loaded
     split       : 'train' | 'validation' | 'additional'
-    wavename    : pywt wavelet name passed to DWT_3D / IDWT_3D, e.g. 'haar'
-    use_dwt     : if True, each image sample is wavelet-decomposed before
-                  being returned.  The dataset item will then contain:
-                      'image'          – original tensor  (4, H, W, D)
-                      'image_dwt_LLL'  – (4, H/2, W/2, D/2)
-                      'image_dwt_LLH'  – (4, H/2, W/2, D/2)
-                      'image_dwt_LHL'  – (4, H/2, W/2, D/2)
-                      'image_dwt_LHH'  – (4, H/2, W/2, D/2)
-                      'image_dwt_HLL'  – (4, H/2, W/2, D/2)
-                      'image_dwt_HLH'  – (4, H/2, W/2, D/2)
-                      'image_dwt_HHL'  – (4, H/2, W/2, D/2)
-                      'image_dwt_HHH'  – (4, H/2, W/2, D/2)
-                  When False, only 'image' is returned (original behaviour).
+                  Controls whether segmentation masks are loaded.
+
+    Returns (per __getitem__)
+    -------
+    dict with keys:
+        't1n'        : torch.FloatTensor (1, 224, 224, 160)  range [0, 1]
+        't1c'        : torch.FloatTensor (1, 224, 224, 160)  range [0, 1]
+        't2w'        : torch.FloatTensor (1, 224, 224, 160)  range [0, 1]
+        't2f'        : torch.FloatTensor (1, 224, 224, 160)  range [0, 1]
+        'missing'    : str  always 'none' (kept for cwdm train_util compatibility)
+        'patient_id' : str
+        'seg'        : torch.LongTensor (H, W, D)  only when split in {'train','validation'}
     """
 
     HAS_SEG = {"train", "validation"}
 
+    SPLIT_DIRS = {
+        "train":      "BraTS2024-BraTS-GLI-TrainingData/training_data1_v2",
+        "validation": "BraTS2024-BraTS-GLI-ValidationData/validation_data",
+        "additional": "BraTS2024-BraTS-GLI-AdditionalTrainingData/training_data_additional",
+    }
+
     def __init__(
         self,
         data_root: str,
-        csv_path: Optional[str],
+        csv_path: Optional[str] = None,
         split: str = "train",
-        wavename: str = "haar",
-        use_dwt: bool = False,
     ):
-        assert split in {"train", "validation", "additional"}, \
-            f"split must be 'train', 'validation', or 'additional', got '{split}'"
+        assert split in self.SPLIT_DIRS, \
+            f"split must be one of {list(self.SPLIT_DIRS)}, got '{split}'"
 
-        self.split    = split
-        self.has_seg  = split in self.HAS_SEG
-        self.wavename = wavename
-        self.use_dwt  = use_dwt
+        self.split   = split
+        self.has_seg = split in self.HAS_SEG
 
-        # Lazy-initialised wavelet modules (CPU; move to GPU in training loop)
-        self._dwt  = None
-        self._idwt = None
-
-        SPLIT_DIRS = {
-            "train":      "BraTS2024-BraTS-GLI-TrainingData/training_data1_v2",
-            "validation": "BraTS2024-BraTS-GLI-ValidationData/validation_data",
-            "additional": "BraTS2024-BraTS-GLI-AdditionalTrainingData/training_data_additional",
-        }
-        split_dir = Path(data_root) / SPLIT_DIRS[split]
+        split_dir = Path(data_root) / self.SPLIT_DIRS[split]
         self.patient_dirs = sorted([d for d in split_dir.iterdir() if d.is_dir()])
 
         if csv_path and Path(csv_path).exists():
@@ -71,68 +80,29 @@ class BraTS20Dataset(Dataset):
                 d for d in self.patient_dirs if d.name in valid_ids
             ]
 
-        print(f"[{split}] {len(self.patient_dirs)} patients loaded. "
-              f"DWT={'on (' + wavename + ')' if use_dwt else 'off'}")
+        print(f"[BraTS20Dataset | {split}] {len(self.patient_dirs)} patients loaded.")
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Internal helper: pad + crop to match cwdm spatial handling
     # ------------------------------------------------------------------
 
-    def _get_dwt(self) -> DWT_3D:
-        if self._dwt is None:
-            self._dwt = DWT_3D(self.wavename)
-        return self._dwt
-
-    def _get_idwt(self) -> IDWT_3D:
-        if self._idwt is None:
-            self._idwt = IDWT_3D(self.wavename)
-        return self._idwt
-
-    # ------------------------------------------------------------------
-    # Public wavelet helpers (useful in training loops / inference)
-    # ------------------------------------------------------------------
-
-    SUB_BAND_NAMES = ('LLL', 'LLH', 'LHL', 'LHH', 'HLL', 'HLH', 'HHL', 'HHH')
-
-    def dwt(self, image: torch.Tensor):
+    @staticmethod
+    def _pad_and_crop(vol_np: np.ndarray) -> torch.Tensor:
         """
-        Apply 3-D DWT to a single image tensor.
+        vol_np : (1, H, W, D)  raw loaded volume, D may be 155
 
-        Parameters
-        ----------
-        image : (C, H, W, D)  or  (B, C, H, W, D)
-
-        Returns
-        -------
-        Tuple of 8 sub-band tensors in order (LLL, LLH, LHL, LHH, HLL, HLH, HHL, HHH),
-        each (C, H/2, W/2, D/2) or (B, C, H/2, W/2, D/2).
+        Returns torch.FloatTensor (1, 224, 224, 160)
+        matching cwdm's:
+            t1n = torch.zeros(1, 240, 240, 160)
+            t1n[:, :, :, :155] = tensor(vol)
+            t1n = t1n[:, 8:-8, 8:-8, :]
         """
-        squeeze = image.dim() == 4
-        if squeeze:
-            image = image.unsqueeze(0)
-        sub_bands = self._get_dwt()(image)
-        if squeeze:
-            return tuple(s.squeeze(0) for s in sub_bands)
-        return sub_bands
-
-    def idwt(self, sub_bands) -> torch.Tensor:
-        """
-        Apply 3-D IDWT to recover the original image.
-
-        Parameters
-        ----------
-        sub_bands : tuple of 8 tensors (LLL, LLH, …, HHH),
-                    each (C, H/2, W/2, D/2) or (B, C, H/2, W/2, D/2)
-
-        Returns
-        -------
-        (C, H, W, D)  or  (B, C, H, W, D)
-        """
-        squeeze = sub_bands[0].dim() == 4
-        if squeeze:
-            sub_bands = tuple(s.unsqueeze(0) for s in sub_bands)
-        out = self._get_idwt()(*sub_bands)
-        return out.squeeze(0) if squeeze else out
+        _, H, W, D = vol_np.shape
+        pad = torch.zeros(1, PAD_H, PAD_W, PAD_D, dtype=torch.float32)
+        t   = torch.from_numpy(vol_np).float()
+        pad[:, :H, :W, :min(D, PAD_D)] = t[:, :PAD_H, :PAD_W, :PAD_D]
+        # centre-crop H and W
+        return pad[:, CROP_H_START:CROP_H_END, CROP_W_START:CROP_W_END, :]
 
     # ------------------------------------------------------------------
     # Dataset protocol
@@ -144,20 +114,19 @@ class BraTS20Dataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         patient_dir = self.patient_dirs[idx]
 
-        image, seg = load_patient(str(patient_dir), load_seg=self.has_seg)
-        image_t = torch.from_numpy(image).float()   # (4, H, W, D)
+        # load_patient now returns a dict of (1, H, W, D) np arrays + optional seg
+        modality_vols, seg = load_patient(str(patient_dir), load_seg=self.has_seg)
 
         sample = {
-            "image":      image_t,
-            "patient_id": patient_dir.name,
+            't1n':        self._pad_and_crop(modality_vols['t1n']),
+            't1c':        self._pad_and_crop(modality_vols['t1c']),
+            't2w':        self._pad_and_crop(modality_vols['t2w']),
+            't2f':        self._pad_and_crop(modality_vols['t2f']),
+            'missing':    'none',   # cwdm train_util expects this key
+            'patient_id': patient_dir.name,
         }
 
-        if self.use_dwt:
-            sub_bands = self.dwt(image_t)   # tuple of 8, each (4, H/2, W/2, D/2)
-            for name, band in zip(self.SUB_BAND_NAMES, sub_bands):
-                sample[f"image_dwt_{name}"] = band
-
         if seg is not None:
-            sample["seg"] = torch.from_numpy(seg).long()   # (H, W, D)
+            sample['seg'] = torch.from_numpy(seg).long()
 
         return sample
