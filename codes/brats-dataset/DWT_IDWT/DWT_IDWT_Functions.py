@@ -1,21 +1,3 @@
-# Copyright (c) 2019, Adobe Inc. All rights reserved.
-#
-# This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike
-# 4.0 International Public License. To view a copy of this license, visit
-# https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.
-
-"""
-自定义pytorch函数，实现一维、二维、三维张量的DWT和IDWT，未考虑边界延拓
-只有当图像行列数都是偶数，且重构滤波器组低频分量长度为2时，才能精确重构，否则在边界处有误差。
-
-NOTE (BraTS adaptation)
------------------------
-This file is the original Adobe / WaveCNet DWT_IDWT_Functions.py, completely
-unmodified.  All six Function classes are kept exactly as provided.
-The only file that changes for BraTS is DWT_IDWT_layer.py, which wires
-DWTFunction_3D / IDWTFunction_3D to the (N, C, H, W, D) tensor layout used
-by the BraTS dataset (depth is the LAST axis, not the third).
-"""
 
 import torch
 from torch.autograd import Function

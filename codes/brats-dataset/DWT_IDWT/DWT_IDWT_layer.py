@@ -1,23 +1,3 @@
-"""
-自定义 pytorch 层，实现一维、二维、三维张量的 DWT 和 IDWT，未考虑边界延拓
-只有当图像行列数都是偶数，且重构滤波器组低频分量长度为 2 时，才能精确重构，否则在边界处有误差。
-
-BraTS adaptation note
----------------------
-The original DWT_3D / IDWT_3D from WaveCNet expect input shape
-    (N, C, D, H, W)   — depth is axis -3
-
-BraTS2024 volumes loaded by this repo have shape
-    (N, C, H, W, D)   — depth is the LAST axis (-1)
-
-To use the unchanged DWTFunction_3D / IDWTFunction_3D from DWT_IDWT_Functions.py
-without any modification to those functions, we simply permute the tensor
-to (N, C, D, H, W) before calling the function, and permute back after.
-
-Everything else — matrix generation, wavelet choice, the layer API — is
-identical to the original WaveCNet code.
-"""
-
 import math
 
 import numpy as np
