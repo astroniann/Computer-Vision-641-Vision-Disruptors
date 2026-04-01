@@ -172,20 +172,12 @@ class TrainLoop:
 
                 names = ["LLL", "LLH", "LHL", "LHH", "HLL", "HLH", "HHL", "HHH"]
 
-<<<<<<< HEAD
                 if self.summary_writer is not None:
                     self.summary_writer.add_scalar('time/load', t_load, global_step=self.step + self.resume_step)
                     self.summary_writer.add_scalar('time/forward', t_fwd, global_step=self.step + self.resume_step)
                     self.summary_writer.add_scalar('time/total', t_total, global_step=self.step + self.resume_step)
                     self.summary_writer.add_scalar('loss/MSE', lossmse.item(), global_step=self.step + self.resume_step)
-=======
-            if self.summary_writer is not None:
-                self.summary_writer.add_scalar('time/load', t_load, global_step=self.step + self.resume_step)
-                self.summary_writer.add_scalar('time/forward', t_fwd, global_step=self.step + self.resume_step)
-                self.summary_writer.add_scalar('time/total', t_total, global_step=self.step + self.resume_step)
-                self.summary_writer.add_scalar('loss/MSE', lossmse.item(), global_step=self.step + self.resume_step)
-                self.summary_writer.add_scalar('loss/tumor_loss_weight', self.tumor_loss_weight, global_step=self.step + self.resume_step)
->>>>>>> 9282ceb68f39492b3004523a6eb1ab16a09ed3a7
+                    self.summary_writer.add_scalar('loss/tumor_loss_weight', self.tumor_loss_weight, global_step=self.step + self.resume_step)
 
                 if self.step % 200 == 0:
                     image_size = sample_idwt.size()[2]
