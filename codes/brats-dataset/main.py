@@ -154,7 +154,7 @@ def create_argparser():
         channel_mult="1,2,2,4,4",
         in_channels=32,     # 8 target subbands + 8×3 condition subbands
         out_channels=8,
-        image_size=224,
+        image_size=96,
         dims=3,
         num_res_blocks=2,
         num_heads=1,
