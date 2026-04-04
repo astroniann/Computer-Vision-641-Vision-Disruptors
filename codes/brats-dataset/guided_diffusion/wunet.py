@@ -309,21 +309,25 @@ class AttentionBlock(nn.Module):
         self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
 
     def forward(self, x):
-        return checkpoint(self._forward, (x,), self.parameters(), True)
-
-    def _forward(self, x):
+        received_tuple = False
         skip = None
         if isinstance(x, tuple):
+            received_tuple = True
             x, skip = x
+            
+        out = checkpoint(self._forward, (x,), self.parameters(), True)
+        
+        if received_tuple:
+            return out, skip
+        return out
+
+    def _forward(self, x):
         b, c, *spatial = x.shape
         x = x.reshape(b, c, -1)
         qkv = self.qkv(self.norm(x))
         h = self.attention(qkv)
         h = self.proj_out(h)
-        out = (x + h).reshape(b, c, *spatial)
-        if skip is not None:
-            return out, skip
-        return out
+        return (x + h).reshape(b, c, *spatial)
 
 
 def count_flops_attn(model, _x, y):
@@ -459,14 +463,19 @@ class CrossModalAttentionBlock(nn.Module):
 
     def forward(self, x, emb=None):
         # emb is ignored — required by TimestepEmbedSequential interface
-        return checkpoint(self._forward, (x,), self.parameters(), self.use_checkpoint)
-
-    def _forward(self, x):
-        # Handle tuple input from wavelet skip connection path
+        received_tuple = False
         skip = None
         if isinstance(x, tuple):
+            received_tuple = True
             x, skip = x
+            
+        out = checkpoint(self._forward, (x,), self.parameters(), self.use_checkpoint)
+        
+        if received_tuple:
+            return out, skip
+        return out
 
+    def _forward(self, x):
         b, c, *spatial = x.shape
         assert c == self.channels, (
             f"CrossModalAttentionBlock: expected {self.channels} channels, got {c}"
@@ -502,11 +511,7 @@ class CrossModalAttentionBlock(nn.Module):
 
         # Reconstruct full feature map
         out = th.cat([x_target, x_cond], dim=1)           # [B, C, N]
-        out = out.reshape(b, c, *spatial)
-
-        if skip is not None:
-            return out, skip
-        return out
+        return out.reshape(b, c, *spatial)
 
 
 class WavUNetModel(nn.Module):
@@ -844,6 +849,7 @@ class WavUNetModel(nn.Module):
             if self.devices is None:  # if self.devices has not been set yet, read it from params
                 p = next(self.parameters())
                 self.devices = [p.device, p.device]
+        return self
 
     def forward(self, x, timesteps):
         """
@@ -874,7 +880,10 @@ class WavUNetModel(nn.Module):
                 h = input_pyramid
 
         for module in self.middle_block:
-            h = module(h, emb)
+            if isinstance(module, TimestepBlock):
+                h = module(h, emb)
+            else:
+                h = module(h)
             if isinstance(h, tuple):
                 h, skip = h
 
