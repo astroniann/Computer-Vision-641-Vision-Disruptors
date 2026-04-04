@@ -66,13 +66,14 @@ class Upsample(nn.Module):
         if isinstance(x, tuple):
             skip = x[1]
             x = x[0]
+        else:
+            skip = None
         assert x.shape[1] == self.channels
 
-        if self.use_conv:
-            skip = self.conv(th.cat(skip, dim=1) / 3.) * 3.
-            skip = tuple(th.chunk(skip, 7, dim=1))
-
-        if self.use_freq:
+        if self.use_freq and skip is not None:
+            if self.use_conv:
+                skip = self.conv(th.cat(skip, dim=1) / 3.) * 3.
+                skip = tuple(th.chunk(skip, 7, dim=1))
             x = self.idwt(3. * x, skip[0], skip[1], skip[2], skip[3], skip[4], skip[5], skip[6])
         else:
             if self.dims == 3 and self.resample_2d:
@@ -879,8 +880,6 @@ class WavUNetModel(nn.Module):
 
         for module in self.output_blocks:
             new_hs = hs.pop()
-            if new_hs is not None:
-                skip = new_hs
 
             # Use additive skip connections
             if self.additive_skips:
@@ -888,13 +887,13 @@ class WavUNetModel(nn.Module):
                     h = (h + new_hs) / np.sqrt(2)
 
             # Use frequency aware skip connections
-            elif self.use_freq:  # You usually want to use the frequency aware upsampling
-                if isinstance(h, tuple):  # Replace None with the stored skip features
+            elif self.use_freq:
+                if isinstance(h, tuple):
                     l = list(h)
-                    l[1] = skip
+                    l[1] = new_hs
                     h = tuple(l)
                 else:
-                    h = (h, skip)
+                    h = (h, new_hs)
 
             # Use concatenation — only concat if skip is not None
             else:
