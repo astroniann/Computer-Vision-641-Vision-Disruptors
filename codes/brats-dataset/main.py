@@ -47,7 +47,7 @@ def main():
     dist_util.setup_dist(devices=args.devices)
 
     # Train all 4 agents sequentially, each in its own folder
-    for contr in ["t1n", "t1c", "t2w", "t2f"]:
+    for contr in ["t2f", "t1n", "t1c", "t2w"]:
         run_dir = f"./runs/agent_{contr}"
 
         print(f"\n{'='*60}")
