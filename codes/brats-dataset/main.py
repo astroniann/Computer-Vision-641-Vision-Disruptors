@@ -94,7 +94,7 @@ def main():
         )
 
         schedule_sampler = create_named_schedule_sampler(
-            args.schedule_sampler, diffusion, maxt=1000
+            args.schedule_sampler, diffusion, maxt=args.diffusion_steps
         )
 
         # Fresh dataloader — reloaded per agent for clean epoch shuffling
@@ -172,10 +172,10 @@ def create_argparser():
         fp16_scale_growth=1e-3,
         dataset="brats",
         devices=[0],
-        num_workers=0,
-        contr="t1n",        # contrast to synthesise: t1n | t1c | t2w | t2f
+        num_workers=4,
+        contr="t2f",        # contrast to synthesise: t1n | t1c | t2w | t2f
         # ---- model/diffusion overrides matching run.sh ----
-        num_channels=34,
+        num_channels=32,
         channel_mult="1,2,4,4",
         in_channels=32,     # 8 target subbands + 8×3 condition subbands
         out_channels=8,
