@@ -47,7 +47,7 @@ def main():
     dist_util.setup_dist(devices=args.devices)
 
     # Train all 4 agents sequentially, each in its own folder
-    for contr in ["t1n", "t1c", "t2w", "t2f"]:
+    for contr in ["t2f", "t1n", "t1c", "t2w"]:
         run_dir = f"./runs/agent_{contr}"
 
         print(f"\n{'='*60}")
@@ -94,7 +94,7 @@ def main():
         )
 
         schedule_sampler = create_named_schedule_sampler(
-            args.schedule_sampler, diffusion, maxt=1000
+            args.schedule_sampler, diffusion, maxt=args.diffusion_steps
         )
 
         # Fresh dataloader — reloaded per agent for clean epoch shuffling
@@ -168,12 +168,12 @@ def create_argparser():
         save_interval=1350,
         resume_checkpoint="",
         resume_step=0,
-        use_fp16=False,
+        use_fp16=True,
         fp16_scale_growth=1e-3,
         dataset="brats",
         devices=[0],
-        num_workers=0,
-        contr="t1n",        # contrast to synthesise: t1n | t1c | t2w | t2f
+        num_workers=4,
+        contr="t2f",        # contrast to synthesise: t1n | t1c | t2w | t2f
         # ---- model/diffusion overrides matching run.sh ----
         num_channels=64,
         channel_mult="1,2,4,4",
@@ -192,7 +192,7 @@ def create_argparser():
         use_cross_attn=True,
         predict_xstart=True,
         noise_schedule="linear",
-        diffusion_steps=1000,
+        diffusion_steps=250,
     ))
     defaults["split"] = "train"  # train | validation | additional
     parser = argparse.ArgumentParser()
