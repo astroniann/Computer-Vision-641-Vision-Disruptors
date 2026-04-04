@@ -311,12 +311,18 @@ class AttentionBlock(nn.Module):
         return checkpoint(self._forward, (x,), self.parameters(), True)
 
     def _forward(self, x):
+        skip = None
+        if isinstance(x, tuple):
+            x, skip = x
         b, c, *spatial = x.shape
         x = x.reshape(b, c, -1)
         qkv = self.qkv(self.norm(x))
         h = self.attention(qkv)
         h = self.proj_out(h)
-        return (x + h).reshape(b, c, *spatial)
+        out = (x + h).reshape(b, c, *spatial)
+        if skip is not None:
+            return out, skip
+        return out
 
 
 def count_flops_attn(model, _x, y):
