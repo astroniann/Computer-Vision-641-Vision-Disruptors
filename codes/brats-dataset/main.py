@@ -158,7 +158,7 @@ def create_argparser():
         # ---- mirrors cwdm run.sh defaults ----
         data_dir="D:/user/BraTS2024-GLI",
         schedule_sampler="uniform",
-        lr=1e-5,
+        lr=1e-6,
         weight_decay=0.0,
         lr_anneal_steps=27000,
         batch_size=1,
