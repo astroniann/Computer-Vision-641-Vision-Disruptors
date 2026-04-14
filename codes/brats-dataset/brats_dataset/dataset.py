@@ -72,7 +72,7 @@ class BraTS20Dataset(Dataset):
         'seg'        : torch.LongTensor (H, W, D)  only when split in {'train','validation'}
     """
 
-    HAS_SEG = {"train", "validation"}
+    HAS_SEG = {"train"}   # validation data has no seg masks in BraTS2024-GLI
 
     SPLIT_DIRS = {
         "train":      "BraTS2024-BraTS-GLI-TrainingData/training_data1_v2",

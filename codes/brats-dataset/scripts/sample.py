@@ -1,5 +1,5 @@
 """
-A script for sampling from a diffusion model for paired image-to-image translation.
+A script for sampling (inference) from a diffusion model for paired image-to-image translation.
 
 Uses BraTS20Dataset (our custom loader) instead of the original BRATSVolumes,
 so it works with the BraTS2024 folder structure:
@@ -9,12 +9,15 @@ so it works with the BraTS2024 folder structure:
                 BraTS-GLI-00000-000/
                     BraTS-GLI-00000-000-t1n.nii.gz  ...
 
-Usage (Windows-friendly paths — use forward slashes or raw strings in shell):
+Default configuration: T1C agent — synthesises T1C from {T1N, T2W, T2F} conditions.
+Checkpoint: runs/t1-c/brats_045000.pt
+
+Usage (Windows / Git Bash):
     python scripts/sample.py ^
-        --data_dir C:/data/BraTS2024-GLI ^
-        --contr t1n ^
-        --model_path runs/brats_001200000.pt ^
-        --output_dir ./results/t1n/
+        --data_dir D:/user/BraTS2024-GLI ^
+        --contr t1c ^
+        --model_path runs/t1-c/brats_045000.pt ^
+        --output_dir ./results/t1c/
 """
 
 import argparse
@@ -135,17 +138,17 @@ def main():
 
         sample[sample <= 0] = 0
         sample[sample >= 1] = 1
-        sample[cond_1.squeeze(1) == 0] = 0  # zero out non-brain voxels
 
         if len(sample.shape) == 5:
-            sample = sample.squeeze(dim=1)
+            sample = sample.squeeze(dim=1)  # [B,1,H,W,D] -> [B,H,W,D]
 
-        # Crop back to original BraTS depth (155 slices)
-        sample = sample[:, :, :, :155]
+        sample[cond_1.squeeze(1) == 0] = 0  # zero out non-brain voxels (both now [B,H,W,D])
+
+        # Volumes are already 192^3 (padded/cropped by BraTS20Dataset).
+        # No depth crop needed — we save the full 192-slice volume.
 
         if len(target.shape) == 5:
             target = target.squeeze(dim=1)
-        target = target[:, :, :, :155]
 
         out_dir = pathlib.Path(args.output_dir) / subj
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -162,24 +165,45 @@ def main():
 def create_argparser():
     defaults = dict(
         seed=0,
-        data_dir="",
+        data_dir="D:/user/BraTS2024-GLI",   # remote desktop BraTS root
         clip_denoised=True,
         num_samples=1,
         batch_size=1,
         use_ddim=False,
         class_cond=False,
         sampling_steps=0,
-        model_path="",
+        model_path="./runs/t1-c/brats_045000.pt",  # t1c agent checkpoint
         devices=[0],
-        output_dir='./results',
+        output_dir='./results/t2f',
         mode='default',
         renormalize=False,
-        image_size= 96,
         half_res_crop=False,
         concat_coords=False,
-        contr="t1n",
+        contr="t2f",
+        # Architecture — must match training run exactly
+        image_size=96,
+        num_channels=64,
+        channel_mult="1,2,4,4",
+        in_channels=32,
+        out_channels=8,
+        dims=3,
+        num_res_blocks=2,
+        num_heads=1,
+        num_groups=32,
+        attention_resolutions="12",
+        bottleneck_attention=True,
+        resample_2d=False,
+        additive_skips=False,
+        use_freq=True,
+        use_cross_attn=True,
+        cond_channels=24,
+        predict_xstart=True,
+        noise_schedule="linear",
+        diffusion_steps=1000,
+        use_fp16=True,
     )
-    defaults.update({k: v for k, v in model_and_diffusion_defaults().items() if k not in defaults})
+    defaults.update({k: v for k, v in model_and_diffusion_defaults().items()
+                     if k not in defaults})
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
     return parser

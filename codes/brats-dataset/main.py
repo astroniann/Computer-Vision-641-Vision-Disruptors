@@ -158,7 +158,7 @@ def create_argparser():
         # ---- mirrors cwdm run.sh defaults ----
         data_dir="D:/user/BraTS2024-GLI",
         schedule_sampler="uniform",
-        lr=1e-6,
+        lr=1e-5,
         weight_decay=0.0,
         lr_anneal_steps=27000,
         batch_size=1,
@@ -184,7 +184,7 @@ def create_argparser():
         num_res_blocks=2,
         num_heads=1,
         num_groups=32,
-        attention_resolutions="8,4",   # ds values in decoder: 16,8,4,2 — 8 and 4 fire at mid-scales
+        attention_resolutions="12",   # ds values in decoder: 16,8,4,2 — 8 and 4 fire at mid-scales
         bottleneck_attention=True,
         resample_2d=False,
         additive_skips=False,

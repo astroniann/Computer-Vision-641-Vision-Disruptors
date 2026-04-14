@@ -127,7 +127,7 @@ def main():
     )
     parser.add_argument(
         "--save_csv", default="",
-        help="Optional path to save per-patient metrics as a CSV file."
+        help="Optional path to save per-patient metrics as a CSV file (written incrementally)."
     )
     args = parser.parse_args()
 
@@ -153,20 +153,67 @@ def main():
           + (f" | contrast: {args.contr}" if args.contr else ""))
     print("-" * 60)
 
+    # ---------------------------------------------------------------------------
+    # Open CSV incrementally — write header only if file is new/empty so that
+    # resuming after a crash appends rather than overwrites.
+    # ---------------------------------------------------------------------------
+    csv_file = None
+    csv_writer = None
+    already_done = set()   # patient IDs already in CSV (for resume support)
+
+    if args.save_csv:
+        csv_path = Path(args.save_csv)
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+        file_is_new = (not csv_path.exists()) or csv_path.stat().st_size == 0
+        csv_file = open(csv_path, "a", newline="")
+        csv_writer = csv.writer(csv_file)
+
+        if file_is_new:
+            csv_writer.writerow(["patient_id", "MSE", "PSNR_dB", "SSIM"])
+            csv_file.flush()
+        else:
+            # Read already-completed rows so we can skip them on resume
+            with open(csv_path, "r", newline="") as rf:
+                reader = csv.DictReader(rf)
+                for row in reader:
+                    already_done.add(row["patient_id"])
+            if already_done:
+                print(f"  [resume] {len(already_done)} patients already in CSV — skipping them.")
+
     results = []  # list of (patient_id, mse, psnr, ssim)
 
-    for patient_dir in patient_dirs:
-        patient_id = patient_dir.name
-        pred   = load_vol(patient_dir / "sample.nii.gz")
-        target = load_vol(patient_dir / "target.nii.gz")
+    try:
+        for patient_dir in patient_dirs:
+            patient_id = patient_dir.name
 
-        mse, psnr, ssim = compute_metrics(pred, target)
-        results.append((patient_id, mse, psnr, ssim))
+            if patient_id in already_done:
+                continue  # already evaluated — skip on resume
 
-        print(f"  {patient_id:30s}  MSE={mse:.6f}  PSNR={psnr:7.3f} dB  SSIM={ssim:.4f}")
+            pred   = load_vol(patient_dir / "sample.nii.gz")
+            target = load_vol(patient_dir / "target.nii.gz")
+
+            mse, psnr, ssim = compute_metrics(pred, target)
+            results.append((patient_id, mse, psnr, ssim))
+
+            print(f"  {patient_id:30s}  MSE={mse:.6f}  PSNR={psnr:7.3f} dB  SSIM={ssim:.4f}")
+
+            # Write + flush immediately so a crash never discards this patient
+            if csv_writer is not None:
+                csv_writer.writerow([patient_id, f"{mse:.8f}", f"{psnr:.4f}", f"{ssim:.4f}"])
+                csv_file.flush()
+
+    finally:
+        # Always close the file cleanly, even on crash
+        if csv_file is not None:
+            csv_file.close()
+
+    if not results:
+        print("  (all patients were already evaluated — nothing new to summarise)")
+        return
 
     # ---------------------------------------------------------------------------
-    # Summary statistics
+    # Summary statistics (console only — CSV body already written row-by-row)
     # ---------------------------------------------------------------------------
     mse_vals  = [r[1] for r in results]
     psnr_vals = [r[2] for r in results]
@@ -181,24 +228,10 @@ def main():
           f"PSNR={np.median(psnr_vals):7.3f} dB  SSIM={np.median(ssim_vals):.4f}")
     print()
 
-    # ---------------------------------------------------------------------------
-    # Optional CSV export
-    # ---------------------------------------------------------------------------
     if args.save_csv:
-        csv_path = Path(args.save_csv)
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["patient_id", "MSE", "PSNR_dB", "SSIM"])
-            for row in results:
-                writer.writerow([row[0], f"{row[1]:.8f}", f"{row[2]:.4f}", f"{row[3]:.4f}"])
-            # Summary rows
-            writer.writerow(["MEAN", f"{np.mean(mse_vals):.8f}",
-                             f"{np.mean(psnr_vals):.4f}", f"{np.mean(ssim_vals):.4f}"])
-            writer.writerow(["STD",  f"{np.std(mse_vals):.8f}",
-                             f"{np.std(psnr_vals):.4f}",  f"{np.std(ssim_vals):.4f}"])
-        print(f"Per-patient metrics saved to: {csv_path}")
+        print(f"Per-patient metrics saved to: {args.save_csv}")
 
 
 if __name__ == "__main__":
     main()
+

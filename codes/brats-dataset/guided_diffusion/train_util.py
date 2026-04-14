@@ -264,7 +264,7 @@ class TrainLoop:
         # compute norms
         with torch.no_grad():
             param_max_norm = max([p.abs().max().item() for p in self.model.parameters()])
-            grad_max_norm = max([p.grad.abs().max().item() for p in self.model.parameters()])
+            grad_max_norm = max([p.grad.abs().max().item() for p in self.model.parameters() if p.grad is not None], default=0.0)
             info['norm/param_max'] = param_max_norm
             info['norm/grad_max'] = grad_max_norm
 
